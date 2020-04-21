@@ -58,15 +58,14 @@ final class Connection implements IConnection
 			'path' => $path,
 			'tcp_nodelay' => $tcpNoDelay,
 		];
-
-		$this->bunnyClient = $this->createNewConnection();
-
-		$this->bunnyClient->connect();
 	}
 
 
 	public function getBunnyClient(): Client
 	{
+		if(is_null($this->bunnyClient)) {
+			$this->reconnect();
+		}
 		return $this->bunnyClient;
 	}
 
@@ -78,7 +77,7 @@ final class Connection implements IConnection
 	{
 		if (!$this->channel instanceof Channel) {
 			try {
-				$this->channel = $this->bunnyClient->channel();
+				$this->channel = $this->getBunnyClient()->channel();
 			} catch (ClientException $e) {
 				if ($e->getMessage() !== 'Broken pipe or closed connection.') {
 					throw new ConnectionException($e->getMessage(), $e->getCode(), $e);
@@ -87,9 +86,9 @@ final class Connection implements IConnection
 				/**
 				 * Try to reconnect
 				 */
-				$this->bunnyClient = $this->createNewConnection();
+				$this->reconnect();
 
-				$this->channel = $this->bunnyClient->channel();
+				$this->channel = $this->getBunnyClient()->channel();
 			}
 		}
 
@@ -99,12 +98,15 @@ final class Connection implements IConnection
 
 	public function __destruct()
 	{
-		$this->bunnyClient->disconnect();
+		if ($this->bunnyClient) {
+			$this->bunnyClient->disconnect();
+		}
 	}
 
 
-	private function createNewConnection(): Client
+	private function reconnect()
 	{
-		return new Client($this->connectionParams);
+		$this->bunnyClient = new Client($this->connectionParams);
+		$this->bunnyClient->connect(); 
 	}
 }
