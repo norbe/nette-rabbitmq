@@ -18,14 +18,20 @@ use Gamee\RabbitMQ\Connection\Exception\ConnectionException;
 final class Connection implements IConnection
 {
 
-	private Client $bunnyClient;
+	/**
+	 * @var Client
+	 */
+	private $bunnyClient;
 
 	/**
 	 * @var array
 	 */
-	private array $connectionParams;
+	private $connectionParams;
 
-	private ?Channel $channel = null;
+	/**
+	 * @var Channel|null
+	 */
+	private $channel;
 
 
 	public function __construct(
@@ -52,21 +58,14 @@ final class Connection implements IConnection
 			'path' => $path,
 			'tcp_nodelay' => $tcpNoDelay,
 		];
-
-		$this->bunnyClient = $this->createNewConnection();
-
-		$this->bunnyClient->connect();
-	}
-
-
-	public function __destruct()
-	{
-		$this->bunnyClient->disconnect();
 	}
 
 
 	public function getBunnyClient(): Client
 	{
+		if(is_null($this->bunnyClient)) {
+			$this->reconnect();
+		}
 		return $this->bunnyClient;
 	}
 
@@ -78,13 +77,7 @@ final class Connection implements IConnection
 	{
 		if (!$this->channel instanceof Channel) {
 			try {
-				$channel = $this->bunnyClient->channel();
-
-				if (!$channel instanceof Channel) {
-					throw new \UnexpectedValueException;
-				}
-
-				$this->channel = $channel;
+				$this->channel = $this->getBunnyClient()->channel();
 			} catch (ClientException $e) {
 				if ($e->getMessage() !== 'Broken pipe or closed connection.') {
 					throw new ConnectionException($e->getMessage(), $e->getCode(), $e);
@@ -93,15 +86,9 @@ final class Connection implements IConnection
 				/**
 				 * Try to reconnect
 				 */
-				$this->bunnyClient = $this->createNewConnection();
+				$this->reconnect();
 
-				$channel = $this->bunnyClient->channel();
-
-				if (!$channel instanceof Channel) {
-					throw new \UnexpectedValueException;
-				}
-
-				$this->channel = $channel;
+				$this->channel = $this->getBunnyClient()->channel();
 			}
 		}
 
@@ -109,8 +96,17 @@ final class Connection implements IConnection
 	}
 
 
-	private function createNewConnection(): Client
+	public function __destruct()
 	{
-		return new Client($this->connectionParams);
+		if ($this->bunnyClient) {
+			$this->bunnyClient->disconnect();
+		}
+	}
+
+
+	private function reconnect()
+	{
+		$this->bunnyClient = new Client($this->connectionParams);
+		$this->bunnyClient->connect(); 
 	}
 }
